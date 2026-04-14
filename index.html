@@ -1,0 +1,114 @@
+import psycopg2
+
+# Настройки подключения
+conn_params = {
+    'dbname': 'food_delivery_pro',
+    'user': 'postgres',
+    'password': '89155362949',
+    'host': '127.0.0.1',
+    'port': 5432
+}
+
+def show_menu(cursor, restaurant_id):
+    cursor.execute("""
+        SELECT id, name, price, is_available
+        FROM dishes
+        WHERE restaurant_id = %s;
+    """, (restaurant_id,))
+    dishes = cursor.fetchall()
+    print(f"\nМеню ресторана ID {restaurant_id}:")
+    for dish in dishes:
+        id, name, price, available = dish
+        status = "[НЕТ В НАЛИЧИИ]" if not available else ""
+        print(f"{id} - {name} | {price} {status}")
+
+def mass_price_change(cursor, conn, restaurant_id, percentage):
+    cursor.execute("""
+        SELECT id, name, price
+        FROM dishes
+        WHERE restaurant_id = %s;
+    """, (restaurant_id,))
+    dishes = cursor.fetchall()
+    
+    print("\nПредпросмотр новых цен:")
+    print(f"{'ID':<5} | {'Название':<20} | {'Старая цена':<12} | {'Новая цена':<12}")
+    new_prices = []
+    for dish in dishes:
+        dish_id, name, old_price = dish
+        new_price = round(old_price * (1 + percentage / 100), 2)
+        new_prices.append((dish_id, new_price))
+        print(f"{dish_id:<5} | {name:<20} | {old_price:<12} | {new_price:<12}")
+
+    confirm = input("Применить новые цены? (Y/N): ").strip().upper()
+    if confirm == 'Y':
+        for dish_id, new_price in new_prices:
+            cursor.execute("""
+                UPDATE dishes
+                SET price = %s
+                WHERE id = %s;
+            """, (new_price, dish_id))
+        conn.commit()
+        print("Цены обновлены.")
+    else:
+        print("Операция отменена.")
+
+def stop_list_update(cursor, dish_id):
+    cursor.execute("""
+        UPDATE dishes
+        SET is_available = FALSE
+        WHERE id = %s;
+    """, (dish_id,))
+    
+
+def main():
+    with psycopg2.connect(**conn_params) as conn:
+        with conn.cursor() as cursor:
+            while True:
+                print("\n=== Консольная Панель Администратора ===")
+                print("1 - Показать меню ресторана")
+                print("2 - Массовое изменение цен")
+                print("3 - Управление стоп-листом")
+                print("0 - Выход")
+                choice = input("Выберите пункт: ").strip()
+
+                if choice == '0':
+                    break
+
+                elif choice == '1':
+                    restaurant_id = input("Введите ID ресторана: ").strip()
+                    if not restaurant_id.isdigit():
+                        print("Некорректный ID.")
+                        continue
+                    show_menu(cursor, int(restaurant_id))
+                
+                elif choice == '2':
+                    restaurant_id = input("Введите ID ресторана: ").strip()
+                    if not restaurant_id.isdigit():
+                        print("Некорректный ID.")
+                        continue
+                    perc = input("Введите процент наценки (например, 10): ").strip()
+                    try:
+                        perc_value = float(perc)
+                    except ValueError:
+                        print("Некорректный процент.")
+                        continue
+                    mass_price_change(cursor, conn, int(restaurant_id), perc_value)
+                    
+                elif choice == '3':
+                    dish_id_input = input("Введите ID блюда для стоп-листа: ").strip()
+                    if not dish_id_input.isdigit():
+                        print("Некорректный ID блюда.")
+                        continue
+                    try:
+                        with conn:
+                            stop_list_update(cursor, int(dish_id_input))
+                            conn.commit()
+                            print("Блюдо занесено в стоп-лист.")
+                    except Exception as e:
+                        print(f"Ошибка: {e}")
+                        conn.rollback()
+                else:
+                    print("Некорректный выбор. Попробуйте снова.")
+
+if __name__ == "__main__":
+    main()
